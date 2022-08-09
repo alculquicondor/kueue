@@ -27,6 +27,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/logr"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -52,10 +53,7 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
+var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -80,8 +78,9 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	setupLog := ctrl.Log.WithName("setup")
 
-	options, config := apply(configFile)
+	options, config := apply(setupLog, configFile)
 
 	metrics.Register()
 
@@ -105,13 +104,13 @@ func main() {
 	cCache := cache.New(mgr.GetClient())
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	setupIndexes(mgr)
+	setupIndexes(setupLog, mgr)
 
-	setupProbeEndpoints(mgr)
+	setupProbeEndpoints(setupLog, mgr)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, config.ManageJobsWithoutQueueName)
+	go setupControllers(setupLog, mgr, cCache, queues, certsReady, config.ManageJobsWithoutQueueName)
 
 	ctx := ctrl.SetupSignalHandler()
 	go func() {
@@ -127,27 +126,27 @@ func main() {
 	}
 }
 
-func setupIndexes(mgr ctrl.Manager) {
+func setupIndexes(log logr.Logger, mgr ctrl.Manager) {
 	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup queue indexes")
+		log.Error(err, "Unable to setup queue indexes")
 	}
 	if err := cache.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup cache indexes")
+		log.Error(err, "Unable to setup cache indexes")
 	}
 	if err := job.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup job indexes")
+		log.Error(err, "Unable to setup job indexes")
 	}
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, manageJobsWithoutQueueName bool) {
+func setupControllers(log logr.Logger, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, manageJobsWithoutQueueName bool) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
-	setupLog.Info("Waiting for certificate generation to complete")
+	log.Info("Waiting for certificate generation to complete")
 	<-certsReady
-	setupLog.Info("Certs ready")
+	log.Info("Certs ready")
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache); err != nil {
-		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
+		log.Error(err, "Unable to create controller", "controller", failedCtrl)
 		os.Exit(1)
 	}
 	if err := job.NewReconciler(mgr.GetScheme(),
@@ -155,26 +154,26 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		mgr.GetEventRecorderFor(constants.JobControllerName),
 		job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 	).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Job")
+		log.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
-		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
+		log.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager) {
-	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
+func setupProbeEndpoints(log logr.Logger, mgr ctrl.Manager) {
+	defer log.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		log.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		log.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 }
@@ -205,7 +204,7 @@ func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {
 	return buf.String(), nil
 }
 
-func apply(configFile string) (ctrl.Options, configv1alpha1.Configuration) {
+func apply(log logr.Logger, configFile string) (ctrl.Options, configv1alpha1.Configuration) {
 	var err error
 	options := ctrl.Options{
 		Scheme: scheme,
@@ -218,16 +217,16 @@ func apply(configFile string) (ctrl.Options, configv1alpha1.Configuration) {
 	} else {
 		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&config))
 		if err != nil {
-			setupLog.Error(err, "unable to load the config file")
+			log.Error(err, "unable to load the config file")
 			os.Exit(1)
 		}
 
 		cfgStr, err := encodeConfig(&config)
 		if err != nil {
-			setupLog.Error(err, "unable to encode config file")
+			log.Error(err, "unable to encode config file")
 			os.Exit(1)
 		}
-		setupLog.Info("Successfully loaded config file", "config", cfgStr)
+		log.Info("Successfully loaded config file", "config", cfgStr)
 	}
 
 	setOptionDefaults(&options)
