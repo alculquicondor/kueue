@@ -20,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	logrtesting "github.com/go-logr/logr/testing"
 )
 
 func TestApply(t *testing.T) {
@@ -81,7 +83,10 @@ enableInternalCertManagement: false
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			options, config := apply(tc.configFile)
+			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+				Verbosity: 2,
+			})
+			options, config := apply(log, tc.configFile)
 
 			if options.Port != tc.wantPort {
 				t.Fatalf("got unexpected port, want: %v, got: %v", tc.wantPort, options.Port)

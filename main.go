@@ -78,6 +78,7 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.Log.Info("THIS IS A TEST")
 	setupLog := ctrl.Log.WithName("setup")
 
 	options, config := apply(setupLog, configFile)
@@ -119,22 +120,22 @@ func main() {
 
 	setupScheduler(ctx, mgr, cCache, queues)
 
-	setupLog.Info("starting manager")
+	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
-		setupLog.Error(err, "problem running manager")
+		setupLog.Error(err, "Could not start manager")
 		os.Exit(1)
 	}
 }
 
 func setupIndexes(log logr.Logger, mgr ctrl.Manager) {
 	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		log.Error(err, "Unable to setup queue indexes")
+		log.Error(err, "Could not to setup queue indexes")
 	}
 	if err := cache.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		log.Error(err, "Unable to setup cache indexes")
+		log.Error(err, "Could not to setup cache indexes")
 	}
 	if err := job.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		log.Error(err, "Unable to setup job indexes")
+		log.Error(err, "Could not to setup job indexes")
 	}
 }
 
