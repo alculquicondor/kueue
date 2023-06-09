@@ -740,7 +740,7 @@ func TestPreemption(t *testing.T) {
 					},
 				},
 			},
-			wantPreempted: sets.New("/wl2"),
+			wantPreempted: sets.New("/wl3"),
 		},
 	}
 	for name, tc := range cases {
@@ -815,7 +815,7 @@ func TestCandidatesOrdering(t *testing.T) {
 			SetOrReplaceCondition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,
 				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
+				LastTransitionTime: metav1.NewTime(now.Add(-time.Second)),
 			}).
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("current", "").
