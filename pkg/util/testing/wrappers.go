@@ -233,6 +233,14 @@ func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper 
 	return p
 }
 
+func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
+	if p.Template.Spec.Containers[0].Resources.Limits == nil {
+		p.Template.Spec.Containers[0].Resources.Limits = make(map[corev1.ResourceName]resource.Quantity)
+	}
+	p.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(q)
+	return p
+}
+
 func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	p.MinCount = &mc
 	return p
