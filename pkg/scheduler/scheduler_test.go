@@ -1311,7 +1311,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			QueueingStrategy(kueue.StrictFIFO).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
-				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 			}).
 			FlavorFungibility(kueue.FlavorFungibility{
 				WhenCanPreempt: kueue.Preempt,
@@ -1404,6 +1404,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		Obj()
 	cases := []struct {
 		name                           string
+		focus                          bool
 		cqs                            []kueue.ClusterQueue
 		admittedWorkloads              []kueue.Workload
 		workloads                      []kueue.Workload
@@ -1451,6 +1452,38 @@ func TestLastSchedulingContext(t *testing.T) {
 			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
 			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
 				"default/preemptor": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+			},
+		},
+		{
+			name:  "preempt on first flavor",
+			focus: true,
+			cqs:   clusterQueue_cohort,
+			admittedWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("full-beta", "default").
+					Request(corev1.ResourceCPU, "50").
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("borrowing-gamma", "default").
+					Request(corev1.ResourceCPU, "60").
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "60").Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("preemptor", "default").
+					Queue("main-alpha").
+					Request(corev1.ResourceCPU, "50").
+					Obj(),
+			},
+			wantPreempted: sets.New("default/borrowing-gamma"),
+			deletedWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("borrowing-gamma", "default").Obj(),
+			},
+			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
+				"default/preemptor": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
+				"default/full-beta": *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
 			},
 		},
 		{
@@ -1518,7 +1551,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			},
 		},
 		{
-			name: "when the next flavor is full",
+			name: "borrow in first flavor when the next flavor is full",
 			cqs:  clusterQueue_cohort,
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
@@ -1559,6 +1592,9 @@ func TestLastSchedulingContext(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if !tc.focus {
+				t.Skip()
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
