@@ -285,6 +285,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					wlConditionCmpOpts...,
 				))
 
+				// Assign the Pod to a node, so that it doesn't get deleted from the server when the finalizer is removed.
+				gomega.Eventually(func() error {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).To(gomega.Succeed())
+					createdPod.Spec.NodeName = "node"
+					return k8sClient.Update(ctx, createdPod)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 				ginkgo.By("checking that pod is stopped when workload is evicted")
 
 				gomega.Expect(
